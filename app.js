@@ -22,7 +22,7 @@ let busy = false;
 let keyStates = {};
 let pendingGuess = "";
 
-const today = new Date().toLocaleDateString("en-CA");
+const today = new Date().toISOString().slice(0, 10);
 
 function getDailyAnswer() {
   const start = new Date("2026-01-01");
