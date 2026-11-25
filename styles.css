@@ -19,11 +19,12 @@ body {
   color: var(--text);
   font-family: Arial, sans-serif;
   text-align: center;
+  transition: background .25s, color .25s;
 }
 
 body.light {
   --bg: #f7f7f7;
-  --text: #222222;
+  --text: #222;
   --border: #d3d6da;
   --key: #d3d6da;
   --grey: #787c7e;
@@ -40,13 +41,8 @@ header {
 }
 
 header h1 {
-  font-size: 17px;
+  font-size: 16px;
   letter-spacing: 1px;
-}
-
-button {
-  cursor: pointer;
-  font-weight: bold;
 }
 
 header button {
@@ -54,6 +50,16 @@ header button {
   color: var(--text);
   border: none;
   font-size: 22px;
+  cursor: pointer;
+}
+
+button {
+  font-weight: bold;
+  transition: transform .12s, opacity .12s;
+}
+
+button:active {
+  transform: scale(.92);
 }
 
 nav {
@@ -66,6 +72,7 @@ nav button {
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text);
+  cursor: pointer;
 }
 
 nav button.active {
@@ -74,7 +81,7 @@ nav button.active {
 }
 
 #message {
-  min-height: 35px;
+  min-height: 38px;
   font-weight: bold;
   padding: 8px;
 }
@@ -89,23 +96,42 @@ nav button.active {
 
 .row {
   display: flex;
-  gap: 5px;
+  justify-content: center;
+  gap: 4px;
 }
 
 .tile {
-  width: 43px;
-  height: 43px;
+  width: min(8.5vw, 48px);
+  height: min(8.5vw, 48px);
+  min-width: 0;
   border: 2px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 19px;
+  font-size: clamp(10px, 3vw, 20px);
   font-weight: bold;
   text-transform: lowercase;
+  transition: border-color .12s;
 }
 
 .tile.filled {
   border-color: var(--key);
+  animation: pop .12s ease;
+}
+
+@keyframes pop {
+  50% { transform: scale(1.08); }
+}
+
+.tile.flip {
+  animation: flip .5s ease forwards;
+}
+
+@keyframes flip {
+  0% { transform: rotateX(0); }
+  45% { transform: rotateX(90deg); }
+  55% { transform: rotateX(90deg); }
+  100% { transform: rotateX(0); }
 }
 
 .correct {
@@ -124,6 +150,16 @@ nav button.active {
   background: var(--grey) !important;
   border-color: var(--grey) !important;
   color: white;
+}
+
+.shake {
+  animation: shake .35s ease;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-5px); }
+  40%, 80% { transform: translateX(5px); }
 }
 
 #keyboard {
@@ -149,6 +185,8 @@ nav button.active {
   background: var(--key);
   color: white;
   font-size: 15px;
+  cursor: pointer;
+  transition: background .2s, transform .1s;
 }
 
 .key.wide {
@@ -169,10 +207,21 @@ dialog {
   border-radius: 12px;
   padding: 25px;
   max-width: 90%;
+  width: 380px;
+  animation: appear .2s ease;
 }
 
 dialog::backdrop {
   background: #000b;
+}
+
+@keyframes appear {
+  from { opacity: 0; transform: scale(.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+dialog button {
+  cursor: pointer;
 }
 
 .close {
@@ -191,16 +240,6 @@ dialog button:not(.close) {
 }
 
 @media (max-width: 370px) {
-  .tile {
-    width: 35px;
-    height: 35px;
-  }
-
-  header h1 {
-    font-size: 12px;
-  }
-
-  .key {
-    height: 45px;
-  }
+  header h1 { font-size: 11px; }
+  .key { height: 45px; }
 }
