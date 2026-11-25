@@ -1,7 +1,7 @@
 
 "use strict";
 
-// ASTRO'S CREATORS WORDLE
+/* ASTRO'S CREATORS WORDLE */
 
 const CREATORS = [
   "hiquality", "pikaapi", "toxic", "j.j.max", "nazmul",
@@ -20,31 +20,112 @@ let mode = "daily";
 let finished = false;
 let busy = false;
 let keyStates = {};
+let pendingGuess = "";
 
-const today = new Date().toISOString().slice(0, 10);
+const today = new Date().toLocaleDateString("en-CA");
 
 function getDailyAnswer() {
   const start = new Date("2026-01-01");
   const current = new Date(today);
   const days = Math.floor((current - start) / 86400000);
-  return CREATORS[((days % CREATORS.length) + CREATORS.length) % CREATORS.length];
+  return CREATORS[
+    ((days % CREATORS.length) + CREATORS.length) % CREATORS.length
+  ];
 }
 
-function setup() {
-  const board = $("board");
-  const keyboard = $("keyboard");
+/* CREATE MISSING HTML ELEMENTS */
 
-  if (!board || !keyboard) {
-    console.error("Wordle: board or keyboard element is missing.");
-    return;
+function ensureElement(id, parent, tag = "div") {
+  let element = $(id);
+
+  if (!element) {
+    element = document.createElement(tag);
+    element.id = id;
+    parent.appendChild(element);
   }
 
-  createConfirmationDialog();
+  return element;
+}
+
+function setupElements() {
+  const body = document.body;
+
+  let main = document.querySelector("main");
+
+  if (!main) {
+    main = document.createElement("main");
+    body.appendChild(main);
+  }
+
+  ensureElement("message", main);
+  ensureElement("board", main);
+  ensureElement("keyboard", main);
+
+  let note = $("bottomNote");
+  if (!note) {
+    note = document.createElement("p");
+    note.id = "bottomNote";
+    main.appendChild(note);
+  }
+
+  ensureElement("dailyBtn", document.querySelector("nav") || main, "button");
+  ensureElement("freeBtn", document.querySelector("nav") || main, "button");
+
+  ensureElement("helpBtn", document.querySelector("header") || body, "button");
+  ensureElement("statsBtn", document.querySelector("header") || body, "button");
+  ensureElement("themeBtn", document.querySelector("header") || body, "button");
+
+  ensureDialog("helpDialog", "How to play",
+    "<p>Guess the creator in six tries.</p><p>🟩 Correct letter and position.</p><p>🟨 Correct letter, wrong position.</p><p>⬛ Letter is not in the name.</p>");
+
+  ensureDialog("statsDialog", "Statistics", '<div id="stats"></div>');
+
+  ensureDialog("resultDialog", "Game over",
+    '<p id="resultText"></p><button id="shareBtn">Share result</button><button id="nextBtn">Play again</button>');
+
+  ensureDialog("confirmDialog", "Are you sure?",
+    '<p>This creator is not on the list. Are you sure you want to submit it?</p><button id="confirmYes">Yes, submit</button><button id="confirmNo">Go back</button>');
+
+  ["helpDialog", "statsDialog", "resultDialog", "confirmDialog"].forEach(id => {
+    const dialog = $(id);
+    if (dialog && !dialog.querySelector("[data-close]")) {
+      const close = document.createElement("button");
+      close.textContent = "×";
+      close.className = "close";
+      close.setAttribute("data-close", "");
+      dialog.prepend(close);
+    }
+  });
+}
+
+function ensureDialog(id, heading, content) {
+  let dialog = $(id);
+
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.id = id;
+    document.body.appendChild(dialog);
+  }
+
+  if (!dialog.innerHTML.trim()) {
+    dialog.innerHTML = `<h2>${heading}</h2>${content}`;
+  }
+
+  return dialog;
+}
+
+/* GAME SETUP */
+
+function setup() {
+  setupElements();
+
+  $("dailyBtn").textContent = "Daily";
+  $("freeBtn").textContent = "Free Play";
 
   $("dailyBtn").onclick = () => startGame("daily");
   $("freeBtn").onclick = () => startGame("free");
 
-  $("helpBtn").onclick = () => $("helpDialog").showModal();
+  $("helpBtn").onclick = () => openDialog("helpDialog");
   $("statsBtn").onclick = showStats;
 
   $("themeBtn").onclick = () => {
@@ -52,49 +133,66 @@ function setup() {
   };
 
   $("nextBtn").onclick = () => {
-    $("resultDialog").close();
+    closeDialog("resultDialog");
     startGame("free");
   };
 
   $("shareBtn").onclick = shareResult;
 
+  $("confirmYes").onclick = () => {
+    closeDialog("confirmDialog");
+    guess = pendingGuess;
+    acceptGuess();
+  };
+
+  $("confirmNo").onclick = () => {
+    closeDialog("confirmDialog");
+    pendingGuess = "";
+  };
+
   document.querySelectorAll("[data-close]").forEach(button => {
-    button.onclick = () => button.closest("dialog").close();
+    button.onclick = () => closeDialog(button.closest("dialog").id);
   });
 
   document.addEventListener("keydown", event => {
-    if (event.target.tagName === "INPUT") return;
+    if (event.target.matches("input, textarea")) return;
 
-    if (event.key === "Enter") submitGuess();
-    else if (event.key === "Backspace") removeLetter();
-    else if (/^[a-zA-Z]$/.test(event.key)) addLetter(event.key);
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitGuess();
+    } else if (event.key === "Backspace") {
+      removeLetter();
+    } else if (/^[a-zA-Z.-]$/.test(event.key)) {
+      addLetter(event.key);
+    }
   });
 
   startGame("daily");
 }
 
-function createConfirmationDialog() {
-  let dialog = $("confirmDialog");
+function openDialog(id) {
+  const dialog = $(id);
+  if (!dialog) return;
 
-  if (!dialog) {
-    dialog = document.createElement("dialog");
-    dialog.id = "confirmDialog";
-    dialog.innerHTML = `
-      <h2>Are you sure?</h2>
-      <p>This creator isn't on the list. Do you still want to submit it?</p>
-      <button id="confirmYes">Yes, submit</button>
-      <button id="confirmNo">Go back</button>
-    `;
-    document.body.appendChild(dialog);
+  if (typeof dialog.showModal === "function") {
+    if (!dialog.open) dialog.showModal();
+  } else {
+    dialog.setAttribute("open", "");
   }
-
-  $("confirmYes").onclick = () => {
-    dialog.close();
-    acceptGuess();
-  };
-
-  $("confirmNo").onclick = () => dialog.close();
 }
+
+function closeDialog(id) {
+  const dialog = $(id);
+  if (!dialog) return;
+
+  if (typeof dialog.close === "function") {
+    dialog.close();
+  } else {
+    dialog.removeAttribute("open");
+  }
+}
+
+/* START AND SAVE */
 
 function startGame(newMode) {
   mode = newMode;
@@ -103,6 +201,7 @@ function startGame(newMode) {
   finished = false;
   busy = false;
   keyStates = {};
+  pendingGuess = "";
 
   if (mode === "daily") {
     answer = getDailyAnswer();
@@ -112,13 +211,16 @@ function startGame(newMode) {
         localStorage.getItem("astro-wordle-" + today) || "null"
       );
 
-      if (saved) {
-        guesses = saved.guesses || [];
-        finished = saved.finished || false;
+      if (saved && Array.isArray(saved.guesses)) {
+        guesses = saved.guesses.filter(
+          word => typeof word === "string" && word.length === answer.length
+        ).slice(0, 6);
+
+        finished = Boolean(saved.finished);
         rebuildKeys();
       }
-    } catch {
-      guesses = [];
+    } catch (error) {
+      console.warn("Could not load saved game:", error);
     }
   } else {
     answer = CREATORS[Math.floor(Math.random() * CREATORS.length)];
@@ -127,6 +229,9 @@ function startGame(newMode) {
   $("dailyBtn").classList.toggle("active", mode === "daily");
   $("freeBtn").classList.toggle("active", mode === "free");
 
+  closeDialog("resultDialog");
+  closeDialog("confirmDialog");
+
   showMessage("");
   render();
 }
@@ -134,11 +239,17 @@ function startGame(newMode) {
 function saveGame() {
   if (mode !== "daily") return;
 
-  localStorage.setItem("astro-wordle-" + today, JSON.stringify({
-    guesses,
-    finished
-  }));
+  try {
+    localStorage.setItem("astro-wordle-" + today, JSON.stringify({
+      guesses,
+      finished
+    }));
+  } catch (error) {
+    console.warn("Could not save game:", error);
+  }
 }
+
+/* WORDLE COLOUR CHECKING */
 
 function score(word) {
   const marks = Array(word.length).fill("absent");
@@ -155,6 +266,7 @@ function score(word) {
     if (marks[i] === "correct") continue;
 
     const index = remaining.indexOf(word[i]);
+
     if (index !== -1) {
       marks[i] = "present";
       remaining[index] = null;
@@ -162,18 +274,6 @@ function score(word) {
   }
 
   return marks;
-}
-
-function rebuildKeys() {
-  keyStates = {};
-
-  guesses.forEach(word => {
-    if (word.length !== answer.length) return;
-
-    score(word).forEach((mark, i) => {
-      updateKey(word[i], mark);
-    });
-  });
 }
 
 function updateKey(letter, state) {
@@ -184,30 +284,52 @@ function updateKey(letter, state) {
   }
 }
 
+function rebuildKeys() {
+  keyStates = {};
+
+  guesses.forEach(word => {
+    score(word).forEach((mark, index) => {
+      updateKey(word[index], mark);
+    });
+  });
+}
+
+/* DRAW THE BOARD AND KEYBOARD */
+
 function render() {
   const board = $("board");
   const keyboard = $("keyboard");
 
+  if (!board || !keyboard || !answer) {
+    console.error("Wordle could not find the board, keyboard, or answer.");
+    return;
+  }
+
   board.innerHTML = "";
   keyboard.innerHTML = "";
 
-  for (let r = 0; r < 6; r++) {
+  for (let rowIndex = 0; rowIndex < 6; rowIndex++) {
     const row = document.createElement("div");
     row.className = "row";
 
-    for (let c = 0; c < answer.length; c++) {
+    for (let col = 0; col < answer.length; col++) {
       const tile = document.createElement("div");
       tile.className = "tile";
 
-      const value = guesses[r]?.[c] ||
-        (r === guesses.length && !finished ? guess[c] : "");
+      let value = "";
 
-      tile.textContent = value || "";
+      if (guesses[rowIndex]) {
+        value = guesses[rowIndex][col] || "";
+      } else if (rowIndex === guesses.length && !finished) {
+        value = guess[col] || "";
+      }
+
+      tile.textContent = value;
 
       if (value) tile.classList.add("filled");
 
-      if (guesses[r]) {
-        tile.classList.add(score(guesses[r])[c]);
+      if (guesses[rowIndex]) {
+        tile.classList.add(score(guesses[rowIndex])[col]);
       }
 
       row.appendChild(tile);
@@ -230,21 +352,28 @@ function render() {
 
     [...letters].forEach(letter => addKey(row, letter));
 
-    if (index === 2) addKey(row, "⌫", true);
+    if (index === 2) {
+      addKey(row, ".", false);
+      addKey(row, "⌫", true);
+    }
 
     keyboard.appendChild(row);
   });
 
   $("bottomNote").textContent =
-    `Guess the creator in 6 tries! (${answer.length} letters)`;
+    `Guess the creator in 6 tries! (${answer.length} characters)`;
 }
 
 function addKey(row, value, wide = false) {
   const button = document.createElement("button");
+
+  button.type = "button";
   button.className = "key" + (wide ? " wide" : "");
   button.textContent = value;
 
-  if (keyStates[value]) button.classList.add(keyStates[value]);
+  if (keyStates[value]) {
+    button.classList.add(keyStates[value]);
+  }
 
   button.onclick = () => {
     if (value === "ENTER") submitGuess();
@@ -255,10 +384,13 @@ function addKey(row, value, wide = false) {
   row.appendChild(button);
 }
 
+/* ENTER LETTERS */
+
 function addLetter(letter) {
   if (finished || busy || guess.length >= answer.length) return;
 
   guess += letter.toLowerCase();
+  showMessage("");
   render();
 }
 
@@ -269,18 +401,22 @@ function removeLetter() {
   render();
 }
 
+/* SUBMIT A GUESS */
+
 function submitGuess() {
   if (finished || busy) return;
 
   if (guess.length !== answer.length) {
-    showMessage(`Enter ${answer.length} letters.`);
+    showMessage(`Enter ${answer.length} characters.`);
+    $("board").classList.remove("shake");
+    void $("board").offsetWidth;
     $("board").classList.add("shake");
-    setTimeout(() => $("board").classList.remove("shake"), 400);
     return;
   }
 
   if (!CREATORS.includes(guess)) {
-    $("confirmDialog").showModal();
+    pendingGuess = guess;
+    openDialog("confirmDialog");
     return;
   }
 
@@ -298,56 +434,67 @@ function acceptGuess() {
   guess = "";
   busy = true;
 
-  marks.forEach((mark, i) => updateKey(submitted[i], mark));
+  marks.forEach((mark, index) => {
+    updateKey(submitted[index], mark);
+  });
 
   render();
 
   const row = $("board").children[guesses.length - 1];
 
-  submitted.split("").forEach((letter, i) => {
-    const tile = row.children[i];
+  submitted.split("").forEach((letter, index) => {
+    const tile = row.children[index];
 
     setTimeout(() => {
       tile.classList.add("flip");
 
       setTimeout(() => {
-        tile.classList.add(marks[i]);
+        tile.classList.add(marks[index]);
       }, 250);
-    }, i * 100);
+    }, index * 100);
   });
 
   setTimeout(() => {
     busy = false;
 
-    if (won) endGame(true);
-    else if (guesses.length >= 6) endGame(false);
+    if (won) {
+      endGame(true);
+    } else if (guesses.length >= 6) {
+      endGame(false);
+    }
 
     saveGame();
     render();
-  }, answer.length * 100 + 600);
+  }, answer.length * 100 + 650);
 }
+
+/* END GAME */
 
 function endGame(won) {
   finished = true;
   saveGame();
 
   $("resultTitle").textContent = won ? "You got it!" : "Game over!";
+
   $("resultText").textContent = won
     ? `You guessed ${answer.toUpperCase()} in ${guesses.length} tries!`
     : `The creator was ${answer.toUpperCase()}.`;
 
-  $("resultDialog").showModal();
+  openDialog("resultDialog");
 }
+
+/* MESSAGES AND STATS */
 
 function showMessage(message) {
   $("message").textContent = message;
 }
 
 function showStats() {
-  $("stats").textContent =
-    `Guesses used this game: ${guesses.length}`;
-  $("statsDialog").showModal();
+  $("stats").textContent = `Guesses used this game: ${guesses.length}`;
+  openDialog("statsDialog");
 }
+
+/* SHARE */
 
 function shareResult() {
   const result = guesses.map(word =>
@@ -357,15 +504,20 @@ function shareResult() {
     ).join("")
   ).join("\n");
 
-  const text = `Astro's Creators Wordle\n${result}`;
+  const text =
+    `Astro's Creators Wordle\n${result}\n${guesses.length}/6`;
 
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text);
-    showMessage("Result copied!");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text)
+      .then(() => showMessage("Result copied!"))
+      .catch(() => showMessage("Could not copy result."));
+  } else {
+    showMessage("Copy is not supported in this browser.");
   }
 }
 
-// Wait until the HTML is ready before drawing the board.
+/* START AFTER THE PAGE LOADS */
+
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", setup);
 } else {
