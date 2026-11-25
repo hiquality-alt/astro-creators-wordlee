@@ -6,7 +6,7 @@ const ORIGINAL_CREATORS = [
   "simpy", "korynn", "mimoko", "djam", "lilsnapes",
   "nox", "cardsharkman", "erika", "belittle", "axel",
   "sturmjager", "theramlerblman", "blackwidowink",
-  "stargazer", "angelclaw", "vibecreai"
+  "stargazer", "angelclaw", "vibecreai", "creativeguy", "planktonfun", "selrak", 
 ];
 
 const CREATORS = [...ORIGINAL_CREATORS];
