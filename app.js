@@ -1,37 +1,23 @@
 
 const creators = [
-  "hiquality",
-  "pikaapi",
-  "toxic",
-  "j.j.max",
-  "nazmul",
-  "simpy",
-  "korynn",
-  "mimoko",
-  "djam",
-  "lilsnapes",
-  "nox",
-  "cardsharkman",
-  "erika",
-  "belittle",
-  "axel",
-  "sturmjager",
-  "theramlerblman",
-  "blackwidowink",
-  "stargazer",
-  "angelclaw",
-  "vibecreai"
+  "hiquality", "pikaapi", "toxic", "j.j.max", "nazmul",
+  "simpy", "korynn", "mimoko", "djam", "lilsnapes",
+  "nox", "cardsharkman", "erika", "belittle", "axel",
+  "sturmjager", "theramlerblman", "blackwidowink",
+  "stargazer", "angelclaw", "vibecreai"
 ];
 
-const board = document.getElementById("board");
-const keyboard = document.getElementById("keyboard");
-const message = document.getElementById("message");
+const $ = id => document.getElementById(id);
+const board = $("board");
+const keyboard = $("keyboard");
+const message = $("message");
 
 let mode = "daily";
-let answer;
+let answer = "";
 let guess = "";
 let guesses = [];
 let finished = false;
+let busy = false;
 let keyStates = {};
 
 const keyboardRows = [
@@ -40,29 +26,63 @@ const keyboardRows = [
   ["ENTER", ..."zxcvbnm", "⌫"]
 ];
 
+const today = () => new Date().toLocaleDateString("en-CA");
+
 function dailyAnswer() {
-  const day = Math.floor(Date.now() / 86400000);
+  const date = new Date();
+  const start = new Date(date.getFullYear(), 0, 0);
+  const day = Math.floor((date - start) / 86400000);
   return creators[(day * 7 + 11) % creators.length];
+}
+
+function saveGame() {
+  if (mode === "daily") {
+    localStorage.setItem("astro-wordle-daily", JSON.stringify({
+      date: today(),
+      guesses,
+      finished
+    }));
+  }
+}
+
+function loadGame() {
+  if (mode !== "daily") return;
+
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem("astro-wordle-daily")
+    );
+
+    if (saved && saved.date === today()) {
+      guesses = saved.guesses || [];
+      finished = !!saved.finished;
+    }
+  } catch {}
 }
 
 function startGame(newMode = mode) {
   mode = newMode;
+  guess = "";
+  guesses = [];
+  finished = false;
+  busy = false;
+  keyStates = {};
+
   answer = mode === "daily"
     ? dailyAnswer()
     : creators[Math.floor(Math.random() * creators.length)];
 
-  guess = "";
-  guesses = [];
-  finished = false;
-  keyStates = {};
+  $("dailyBtn").classList.toggle("active", mode === "daily");
+  $("freeBtn").classList.toggle("active", mode === "free");
 
-  document.getElementById("dailyBtn").classList.toggle("active", mode === "daily");
-  document.getElementById("freeBtn").classList.toggle("active", mode === "free");
-
-  document.getElementById("bottomNote").textContent =
-    mode === "daily" ? "One creator every day!" : "Free play mode!";
+  $("bottomNote").textContent = mode === "daily"
+    ? "One creator every day."
+    : "Free play — guess another creator!";
 
   message.textContent = "";
+
+  loadGame();
+  rebuildKeyStates();
   render();
 }
 
@@ -91,6 +111,29 @@ function score(word) {
   return result;
 }
 
+function rebuildKeyStates() {
+  keyStates = {};
+
+  guesses.forEach(word => {
+    const marks = score(word);
+
+    word.split("").forEach((letter, i) => {
+      const priority = {
+        absent: 0,
+        present: 1,
+        correct: 2
+      };
+
+      if (
+        !keyStates[letter] ||
+        priority[marks[i]] > priority[keyStates[letter]]
+      ) {
+        keyStates[letter] = marks[i];
+      }
+    });
+  });
+}
+
 function render() {
   board.innerHTML = "";
 
@@ -98,7 +141,10 @@ function render() {
     const row = document.createElement("div");
     row.className = "row";
 
-    const word = guesses[r] || (r === guesses.length ? guess : "");
+    const word = guesses[r] || (
+      r === guesses.length && !finished ? guess : ""
+    );
+
     const width = Math.max(answer.length, 5);
 
     for (let c = 0; c < width; c++) {
@@ -147,8 +193,14 @@ function render() {
   });
 }
 
+function shakeBoard() {
+  board.classList.remove("shake");
+  void board.offsetWidth;
+  board.classList.add("shake");
+}
+
 function press(key) {
-  if (finished) return;
+  if (finished || busy) return;
 
   if (key === "ENTER") {
     submitGuess();
@@ -172,49 +224,95 @@ function press(key) {
 function submitGuess() {
   if (guess.length !== answer.length) {
     message.textContent = `Enter ${answer.length} characters.`;
+    shakeBoard();
     return;
   }
 
   if (!creators.includes(guess)) {
-    message.textContent = "That creator name isn't in the list!";
+    message.textContent = "That creator isn't in the list!";
+    shakeBoard();
     return;
   }
 
-  guesses.push(guess);
+  busy = true;
+  message.textContent = "";
 
-  const marks = score(guess);
-  const priority = { absent: 0, present: 1, correct: 2 };
+  const submitted = guess;
+  const rowIndex = guesses.length;
+  const won = submitted === answer;
 
-  guess.split("").forEach((letter, i) => {
-    const key = letter;
-
-    if (!keyStates[key] || priority[marks[i]] > priority[keyStates[key]]) {
-      keyStates[key] = marks[i];
-    }
-  });
-
-  const won = guess === answer;
+  guesses.push(submitted);
   guess = "";
 
-  if (won || guesses.length === 6) {
-    finish(won);
+  const marks = score(submitted);
+  const row = board.children[rowIndex];
+
+  submitted.split("").forEach((letter, i) => {
+    const tile = row.children[i];
+
+    setTimeout(() => {
+      tile.classList.add("flip");
+
+      setTimeout(() => {
+        tile.classList.add(marks[i]);
+        updateKey(letter, marks[i]);
+      }, 250);
+    }, i * 100);
+  });
+
+  const animationTime = submitted.length * 100 + 550;
+
+  setTimeout(() => {
+    busy = false;
+    saveGame();
+
+    if (won) {
+      finish(true);
+    } else if (guesses.length === 6) {
+      finish(false);
+    }
+
+    render();
+  }, animationTime);
+}
+
+function updateKey(letter, mark) {
+  const priority = {
+    absent: 0,
+    present: 1,
+    correct: 2
+  };
+
+  if (
+    !keyStates[letter] ||
+    priority[mark] > priority[keyStates[letter]]
+  ) {
+    keyStates[letter] = mark;
   }
 
-  render();
+  const buttons = keyboard.querySelectorAll(".key");
+
+  buttons.forEach(button => {
+    if (button.textContent.toLowerCase() === letter) {
+      button.classList.remove("correct", "present", "absent");
+      button.classList.add(keyStates[letter]);
+    }
+  });
 }
 
 function finish(won) {
   finished = true;
+  saveGame();
 
-  document.getElementById("resultTitle").textContent =
-    won ? "Brilliant! 🎉" : "Game over!";
+  $("resultTitle").textContent = won
+    ? "Brilliant! 🎉"
+    : "Game over!";
 
-  document.getElementById("resultText").textContent =
-    won
-      ? `You guessed ${answer} in ${guesses.length} tries!`
-      : `The creator was ${answer}.`;
+  $("resultText").textContent = won
+    ? `You guessed ${answer} in ${guesses.length} tries!`
+    : `The creator was ${answer}.`;
 
-  document.getElementById("resultDialog").showModal();
+  $("resultDialog").showModal();
 }
 
 function shareResult() {
@@ -231,33 +329,32 @@ function shareResult() {
   if (navigator.share) {
     navigator.share({ text: result }).catch(() => {});
   } else if (navigator.clipboard) {
-    navigator.clipboard.writeText(result);
-    message.textContent = "Result copied!";
+    navigator.clipboard.writeText(result)
+      .then(() => message.textContent = "Result copied!");
   }
 }
 
-document.getElementById("dailyBtn").onclick = () => startGame("daily");
-document.getElementById("freeBtn").onclick = () => startGame("free");
+$("dailyBtn").onclick = () => startGame("daily");
+$("freeBtn").onclick = () => startGame("free");
 
-document.getElementById("helpBtn").onclick = () =>
-  document.getElementById("helpDialog").showModal();
+$("helpBtn").onclick = () => $("helpDialog").showModal();
 
-document.getElementById("statsBtn").onclick = () => {
-  document.getElementById("stats").textContent = "Stats coming soon!";
-  document.getElementById("statsDialog").showModal();
+$("statsBtn").onclick = () => {
+  $("stats").textContent = "Statistics coming soon!";
+  $("statsDialog").showModal();
 };
 
-document.getElementById("themeBtn").onclick = () =>
+$("themeBtn").onclick = () =>
   document.body.classList.toggle("light");
 
 document.querySelectorAll("[data-close]").forEach(button => {
   button.onclick = () => button.closest("dialog").close();
 });
 
-document.getElementById("shareBtn").onclick = shareResult;
+$("shareBtn").onclick = shareResult;
 
-document.getElementById("nextBtn").onclick = () => {
-  document.getElementById("resultDialog").close();
+$("nextBtn").onclick = () => {
+  $("resultDialog").close();
   startGame("free");
 };
 
