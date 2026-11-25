@@ -228,11 +228,11 @@ function submitGuess() {
     return;
   }
 
-  if (!creators.includes(guess)) {
-    message.textContent = "That creator isn't in the list!";
-    shakeBoard();
-    return;
-  }
+if (!creators.includes(guess)) {
+  message.textContent = "This creator isn't on the list!";
+  shakeBoard();
+  return;
+}
 
   busy = true;
   message.textContent = "";
