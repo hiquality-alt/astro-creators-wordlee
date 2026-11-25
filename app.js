@@ -1,9 +1,7 @@
 
 "use strict";
 
-/* ASTRO'S CREATORS WORDLE */
-
-const CREATORS = [
+const ORIGINAL_CREATORS = [
   "hiquality", "pikaapi", "toxic", "j.j.max", "nazmul",
   "simpy", "korynn", "mimoko", "djam", "lilsnapes",
   "nox", "cardsharkman", "erika", "belittle", "axel",
@@ -11,9 +9,23 @@ const CREATORS = [
   "stargazer", "angelclaw", "vibecreai"
 ];
 
-const EXTRA_KEY = "astro-extra-creators";
+const CREATORS = [...ORIGINAL_CREATORS];
+
+const ADMIN_UID = "kkRVVb2c0jd8tMRmoIZUOFVH3Fl1";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBCwKZRARQxvm2Vv4oqvcrWBwfQ6HqJBCI",
+  authDomain: "wordle-d9760.firebaseapp.com",
+  databaseURL: "https://wordle-d9760-default-rtdb.firebaseio.com",
+  projectId: "wordle-d9760",
+  storageBucket: "wordle-d9760.firebasestorage.app",
+  messagingSenderId: "688177001022",
+  appId: "1:688177001022:web:70202c003cceda976d976f",
+  measurementId: "G-M80RBSLSN7"
+};
 
 const $ = id => document.getElementById(id);
+const today = new Date().toISOString().slice(0, 10);
 
 let answer = "";
 let guess = "";
@@ -23,46 +35,89 @@ let finished = false;
 let busy = false;
 let keyStates = {};
 let pendingGuess = "";
+let firebaseAuth = null;
+let creatorsRef = null;
+let isAdmin = false;
+let creatorDataReady = false;
 
-const today = new Date().toISOString().slice(0, 10);
+function showMessage(message) {
+  $("message").textContent = message;
+}
 
-/* LOAD EXTRA CREATORS */
+function openDialog(id) {
+  const dialog = $(id);
+  if (dialog && !dialog.open) dialog.showModal();
+}
 
-function loadExtraCreators() {
+function closeDialog(id) {
+  const dialog = $(id);
+  if (dialog && dialog.open) dialog.close();
+}
+
+/* FIREBASE */
+
+function initFirebase() {
+  if (!window.firebase) {
+    showMessage("Firebase could not load. Refresh the page.");
+    return;
+  }
+
   try {
-    const extra = JSON.parse(localStorage.getItem(EXTRA_KEY) || "[]");
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
 
-    if (Array.isArray(extra)) {
-      extra.forEach(name => {
-        if (typeof name === "string" && !CREATORS.includes(name)) {
+    firebaseAuth = firebase.auth();
+    creatorsRef = firebase.database().ref("creators");
+
+    creatorsRef.on("value", snapshot => {
+      const remoteNames = [];
+
+      snapshot.forEach(child => {
+        const value = child.val();
+
+        if (typeof value === "string") {
+          const name = value.trim().toLowerCase();
+
+          if (/^[a-z0-9.-]{1,25}$/.test(name)) {
+            remoteNames.push(name);
+          }
+        }
+      });
+
+      CREATORS.splice(0, CREATORS.length, ...ORIGINAL_CREATORS);
+
+      remoteNames.forEach(name => {
+        if (!CREATORS.includes(name)) {
           CREATORS.push(name);
         }
       });
-    }
+
+      creatorDataReady = true;
+
+      if (!answer) {
+        startGame(mode);
+      }
+    }, error => {
+      console.error(error);
+      showMessage("Could not load online creators.");
+    });
+
+    firebaseAuth.onAuthStateChanged(user => {
+      updateAdminPanel(user);
+    });
+
   } catch (error) {
-    console.warn("Could not load extra creators:", error);
+    console.error(error);
+    showMessage("Firebase setup failed.");
   }
-}
-
-function saveExtraCreators() {
-  const original = [
-    "hiquality", "pikaapi", "toxic", "j.j.max", "nazmul",
-    "simpy", "korynn", "mimoko", "djam", "lilsnapes",
-    "nox", "cardsharkman", "erika", "belittle", "axel",
-    "sturmjager", "theramlerblman", "blackwidowink",
-    "stargazer", "angelclaw", "vibecreai"
-  ];
-
-  const extra = CREATORS.filter(name => !original.includes(name));
-
-  localStorage.setItem(EXTRA_KEY, JSON.stringify(extra));
 }
 
 /* DAILY ANSWER */
 
 function getDailyAnswer() {
-  const start = new Date("2026-01-01");
-  const current = new Date(today);
+  const start = new Date("2026-01-01T00:00:00Z");
+  const current = new Date(today + "T00:00:00Z");
   const days = Math.floor((current - start) / 86400000);
 
   return CREATORS[
@@ -70,116 +125,26 @@ function getDailyAnswer() {
   ];
 }
 
-/* CREATE MISSING ELEMENTS */
-
-function ensureElement(id, parent, tag = "div") {
-  let element = $(id);
-
-  if (!element) {
-    element = document.createElement(tag);
-    element.id = id;
-    parent.appendChild(element);
-  }
-
-  return element;
-}
-
-function ensureDialog(id, heading, content) {
-  let dialog = $(id);
-
-  if (!dialog) {
-    dialog = document.createElement("dialog");
-    dialog.id = id;
-    document.body.appendChild(dialog);
-  }
-
-  if (!dialog.innerHTML.trim()) {
-    dialog.innerHTML = `<h2>${heading}</h2>${content}`;
-  }
-
-  return dialog;
-}
-
-function setupElements() {
-  const body = document.body;
-
-  let main = document.querySelector("main");
-
-  if (!main) {
-    main = document.createElement("main");
-    body.appendChild(main);
-  }
-
-  ensureElement("message", main);
-  ensureElement("board", main);
-  ensureElement("keyboard", main);
-
-  let note = $("bottomNote");
-
-  if (!note) {
-    note = document.createElement("p");
-    note.id = "bottomNote";
-    main.appendChild(note);
-  }
-
-  const nav = document.querySelector("nav") || main;
-  const header = document.querySelector("header") || body;
-
-  ensureElement("dailyBtn", nav, "button");
-  ensureElement("freeBtn", nav, "button");
-  ensureElement("helpBtn", header, "button");
-  ensureElement("statsBtn", header, "button");
-  ensureElement("themeBtn", header, "button");
-
-  ensureDialog(
-    "helpDialog",
-    "How to play",
-    "<p>Guess the creator in six tries.</p><p>🟩 Correct letter and position.</p><p>🟨 Correct letter, wrong position.</p><p>⬛ Letter is not in the name.</p>"
-  );
-
-  ensureDialog("statsDialog", "Statistics", '<div id="stats"></div>');
-
-  ensureDialog(
-    "resultDialog",
-    "Game over",
-    '<h2 id="resultTitle"></h2><p id="resultText"></p><button id="shareBtn">Share result</button><button id="nextBtn">Play again</button>'
-  );
-
-  ensureDialog(
-    "confirmDialog",
-    "Are you sure?",
-    '<p>This creator is not on the list. Are you sure you want to submit it?</p><button id="confirmYes">Yes, submit</button><button id="confirmNo">Go back</button>'
-  );
-
-  ["helpDialog", "statsDialog", "resultDialog", "confirmDialog"].forEach(id => {
-    const dialog = $(id);
-
-    if (dialog && !dialog.querySelector("[data-close]")) {
-      const close = document.createElement("button");
-      close.textContent = "×";
-      close.className = "close";
-      close.setAttribute("data-close", "");
-      dialog.prepend(close);
-    }
-  });
-}
-
-/* SECRET ADMIN CORNER */
+/* ADMIN CORNER */
 
 function setupSecretCorner() {
-  const corner = document.createElement("div");
+  const corner = document.createElement("button");
 
   corner.id = "secretCorner";
+  corner.type = "button";
+  corner.setAttribute("aria-label", "Admin");
 
   corner.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 24px;
-    height: 24px;
-    opacity: 0;
-    z-index: 999999;
-    cursor: default;
+    position:fixed;
+    top:0;
+    left:0;
+    width:32px;
+    height:32px;
+    padding:0;
+    border:0;
+    background:transparent;
+    opacity:0;
+    z-index:2147483647;
   `;
 
   document.body.appendChild(corner);
@@ -189,66 +154,79 @@ function setupSecretCorner() {
 
   popup.innerHTML = `
     <button class="close" id="secretClose">×</button>
-    <h2>Add a creator</h2>
-    <p>Add a name to the possible Wordle answers.</p>
-    <input
-      id="newCreator"
-      type="text"
-      maxlength="25"
-      placeholder="Creator name"
-      autocomplete="off"
-      style="
-        width: 100%;
-        padding: 12px;
-        margin: 10px 0;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        background: var(--bg);
-        color: var(--text);
-        font-size: 16px;
-      "
-    >
-    <button id="addCreator">Add creator</button>
+    <h2>Creator admin</h2>
+
+    <section id="adminLogin">
+      <p>Sign in with your admin account.</p>
+      <input id="adminEmail" type="email"
+        placeholder="Email" autocomplete="username"
+        style="width:100%;padding:12px;margin:6px 0">
+
+      <input id="adminPassword" type="password"
+        placeholder="Password" autocomplete="current-password"
+        style="width:100%;padding:12px;margin:6px 0">
+
+      <button id="adminLoginBtn">Sign in</button>
+    </section>
+
+    <section id="adminAdd" hidden>
+      <p>Admin access enabled.</p>
+
+      <input id="newCreator" type="text"
+        maxlength="25" placeholder="Creator name"
+        style="width:100%;padding:12px;margin:6px 0">
+
+      <button id="addCreator">Add creator</button>
+      <button id="adminLogout">Sign out</button>
+    </section>
+
     <p id="secretMessage"></p>
   `;
 
   document.body.appendChild(popup);
 
-  corner.addEventListener("click", () => {
-    popup.showModal();
+  corner.onclick = () => {
     $("secretMessage").textContent = "";
-    $("newCreator").focus();
-  });
+    updateAdminPanel(firebaseAuth?.currentUser || null);
+    openDialog("secretCreatorDialog");
+  };
 
-  $("secretClose").onclick = () => popup.close();
+  $("secretClose").onclick = () => {
+    closeDialog("secretCreatorDialog");
+  };
 
-  function addCreator() {
-    const input = $("newCreator");
-    const message = $("secretMessage");
-    const name = input.value.trim().toLowerCase();
+  $("adminLoginBtn").onclick = async () => {
+    const email = $("adminEmail").value.trim();
+    const password = $("adminPassword").value;
 
-    if (!/^[a-z0-9.-]+$/.test(name)) {
-      message.textContent = "Use only letters, numbers, dots or hyphens.";
+    if (!firebaseAuth || !email || !password) {
+      $("secretMessage").textContent =
+        "Enter your email and password.";
       return;
     }
-
-    if (CREATORS.includes(name)) {
-      message.textContent = "That creator already exists!";
-      return;
-    }
-
-    CREATORS.push(name);
 
     try {
-      saveExtraCreators();
-      message.textContent = name + " was added successfully!";
-      input.value = "";
+      const result =
+        await firebaseAuth.signInWithEmailAndPassword(email, password);
+
+      if (result.user.uid !== ADMIN_UID) {
+        await firebaseAuth.signOut();
+
+        $("secretMessage").textContent =
+          "This is not the admin account.";
+        return;
+      }
+
+      $("adminPassword").value = "";
+      $("secretMessage").textContent = "Admin signed in!";
+      updateAdminPanel(result.user);
+
     } catch (error) {
-      CREATORS.pop();
-      message.textContent = "Could not save the creator.";
       console.error(error);
+      $("secretMessage").textContent =
+        "Sign-in failed. Check your email and password.";
     }
-  }
+  };
 
   $("addCreator").onclick = addCreator;
 
@@ -258,96 +236,70 @@ function setupSecretCorner() {
       addCreator();
     }
   });
+
+  $("adminLogout").onclick = async () => {
+    if (firebaseAuth) await firebaseAuth.signOut();
+
+    updateAdminPanel(null);
+    $("secretMessage").textContent = "Signed out.";
+  };
 }
 
-/* GAME SETUP */
+function updateAdminPanel(user) {
+  if (!$("adminLogin")) return;
 
-function setup() {
-  loadExtraCreators();
-  setupElements();
-  setupSecretCorner();
+  isAdmin = Boolean(user && user.uid === ADMIN_UID);
 
-  $("dailyBtn").textContent = "Daily";
-  $("freeBtn").textContent = "Free Play";
-
-  $("dailyBtn").onclick = () => startGame("daily");
-  $("freeBtn").onclick = () => startGame("free");
-
-  $("helpBtn").onclick = () => openDialog("helpDialog");
-  $("statsBtn").onclick = showStats;
-
-  $("themeBtn").onclick = () => {
-    document.body.classList.toggle("light");
-  };
-
-  $("nextBtn").onclick = () => {
-    closeDialog("resultDialog");
-    startGame("free");
-  };
-
-  $("shareBtn").onclick = shareResult;
-
-  $("confirmYes").onclick = () => {
-    closeDialog("confirmDialog");
-    guess = pendingGuess;
-    pendingGuess = "";
-    acceptGuess();
-  };
-
-  $("confirmNo").onclick = () => {
-    closeDialog("confirmDialog");
-    pendingGuess = "";
-  };
-
-  document.querySelectorAll("[data-close]").forEach(button => {
-    button.onclick = () => {
-      closeDialog(button.closest("dialog").id);
-    };
-  });
-
-  document.addEventListener("keydown", event => {
-    if (event.target.matches("input, textarea")) return;
-
-    if (event.key === "Enter") {
-      event.preventDefault();
-      submitGuess();
-    } else if (event.key === "Backspace") {
-      removeLetter();
-    } else if (/^[a-zA-Z.-]$/.test(event.key)) {
-      addLetter(event.key);
-    }
-  });
-
-  startGame("daily");
+  $("adminLogin").hidden = isAdmin;
+  $("adminAdd").hidden = !isAdmin;
 }
 
-/* DIALOGS */
+async function addCreator() {
+  const message = $("secretMessage");
+  const name = $("newCreator").value.trim().toLowerCase();
 
-function openDialog(id) {
-  const dialog = $(id);
-  if (!dialog) return;
+  if (
+    !firebaseAuth ||
+    !firebaseAuth.currentUser ||
+    firebaseAuth.currentUser.uid !== ADMIN_UID
+  ) {
+    message.textContent = "Please sign in as admin.";
+    return;
+  }
 
-  if (typeof dialog.showModal === "function") {
-    if (!dialog.open) dialog.showModal();
-  } else {
-    dialog.setAttribute("open", "");
+  if (!/^[a-z0-9.-]{1,25}$/.test(name)) {
+    message.textContent =
+      "Use 1–25 letters, numbers, dots or hyphens.";
+    return;
+  }
+
+  if (CREATORS.includes(name)) {
+    message.textContent = "Creator already exists!";
+    return;
+  }
+
+  try {
+    await creatorsRef.push(name);
+
+    $("newCreator").value = "";
+    message.textContent =
+      "Creator added to the shared answer pool!";
+
+  } catch (error) {
+    console.error(error);
+    message.textContent = "Could not save creator.";
   }
 }
 
-function closeDialog(id) {
-  const dialog = $(id);
-  if (!dialog) return;
-
-  if (typeof dialog.close === "function") {
-    dialog.close();
-  } else {
-    dialog.removeAttribute("open");
-  }
-}
-
-/* START GAME */
+/* GAME */
 
 function startGame(newMode) {
+  if (!creatorDataReady) {
+    mode = newMode;
+    showMessage("Loading creators...");
+    return;
+  }
+
   mode = newMode;
   guess = "";
   guesses = [];
@@ -365,18 +317,23 @@ function startGame(newMode) {
       );
 
       if (saved && Array.isArray(saved.guesses)) {
-        guesses = saved.guesses.filter(
-          word => typeof word === "string" && word.length === answer.length
-        ).slice(0, 6);
+        guesses = saved.guesses
+          .filter(word =>
+            typeof word === "string" &&
+            word.length === answer.length
+          )
+          .slice(0, 6);
 
         finished = Boolean(saved.finished);
         rebuildKeys();
       }
     } catch (error) {
-      console.warn("Could not load saved game:", error);
+      console.warn(error);
     }
   } else {
-    answer = CREATORS[Math.floor(Math.random() * CREATORS.length)];
+    answer = CREATORS[
+      Math.floor(Math.random() * CREATORS.length)
+    ];
   }
 
   $("dailyBtn").classList.toggle("active", mode === "daily");
@@ -389,22 +346,16 @@ function startGame(newMode) {
   render();
 }
 
-/* SAVE GAME */
-
 function saveGame() {
   if (mode !== "daily") return;
 
-  try {
-    localStorage.setItem("astro-wordle-" + today, JSON.stringify({
-      guesses,
-      finished
-    }));
-  } catch (error) {
-    console.warn("Could not save game:", error);
-  }
+  localStorage.setItem(
+    "astro-wordle-" + today,
+    JSON.stringify({ guesses, finished })
+  );
 }
 
-/* CHECK LETTERS */
+/* WORDLE CHECKING */
 
 function score(word) {
   const marks = Array(word.length).fill("absent");
@@ -438,7 +389,10 @@ function updateKey(letter, state) {
     correct: 3
   };
 
-  if (!keyStates[letter] || priority[state] > priority[keyStates[letter]]) {
+  if (
+    !keyStates[letter] ||
+    priority[state] > priority[keyStates[letter]]
+  ) {
     keyStates[letter] = state;
   }
 }
@@ -453,16 +407,13 @@ function rebuildKeys() {
   });
 }
 
-/* RENDER BOARD AND KEYBOARD */
+/* BOARD AND KEYBOARD */
 
 function render() {
   const board = $("board");
   const keyboard = $("keyboard");
 
-  if (!board || !keyboard || !answer) {
-    console.error("Wordle could not find the board, keyboard, or answer.");
-    return;
-  }
+  if (!board || !keyboard || !answer) return;
 
   board.innerHTML = "";
   keyboard.innerHTML = "";
@@ -479,7 +430,10 @@ function render() {
 
       if (guesses[rowIndex]) {
         value = guesses[rowIndex][col] || "";
-      } else if (rowIndex === guesses.length && !finished) {
+      } else if (
+        rowIndex === guesses.length &&
+        !finished
+      ) {
         value = guess[col] || "";
       }
 
@@ -497,27 +451,22 @@ function render() {
     board.appendChild(row);
   }
 
-  const keyboardRows = [
-    "qwertyuiop",
-    "asdfghjkl",
-    "zxcvbnm"
-  ];
+  ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
+    .forEach((letters, index) => {
+      const row = document.createElement("div");
+      row.className = "key-row";
 
-  keyboardRows.forEach((letters, index) => {
-    const row = document.createElement("div");
-    row.className = "key-row";
+      if (index === 2) addKey(row, "ENTER", true);
 
-    if (index === 2) addKey(row, "ENTER", true);
+      [...letters].forEach(letter => addKey(row, letter));
 
-    [...letters].forEach(letter => addKey(row, letter));
+      if (index === 2) {
+        addKey(row, ".", false);
+        addKey(row, "⌫", true);
+      }
 
-    if (index === 2) {
-      addKey(row, ".", false);
-      addKey(row, "⌫", true);
-    }
-
-    keyboard.appendChild(row);
-  });
+      keyboard.appendChild(row);
+    });
 
   $("bottomNote").textContent =
     `Guess the creator in 6 tries! (${answer.length} characters)`;
@@ -559,8 +508,6 @@ function removeLetter() {
   guess = guess.slice(0, -1);
   render();
 }
-
-/* SUBMIT GUESS */
 
 function submitGuess() {
   if (finished || busy) return;
@@ -616,11 +563,8 @@ function acceptGuess() {
   setTimeout(() => {
     busy = false;
 
-    if (won) {
-      endGame(true);
-    } else if (guesses.length >= 6) {
-      endGame(false);
-    }
+    if (won) endGame(true);
+    else if (guesses.length >= 6) endGame(false);
 
     saveGame();
     render();
@@ -633,7 +577,8 @@ function endGame(won) {
   finished = true;
   saveGame();
 
-  $("resultTitle").textContent = won ? "You got it!" : "Game over!";
+  $("resultTitle").textContent =
+    won ? "You got it!" : "Game over!";
 
   $("resultText").textContent = won
     ? `You guessed ${answer.toUpperCase()} in ${guesses.length} tries!`
@@ -642,11 +587,7 @@ function endGame(won) {
   openDialog("resultDialog");
 }
 
-/* MESSAGES AND STATS */
-
-function showMessage(message) {
-  $("message").textContent = message;
-}
+/* STATS AND SHARE */
 
 function showStats() {
   $("stats").textContent =
@@ -654,8 +595,6 @@ function showStats() {
 
   openDialog("statsDialog");
 }
-
-/* SHARE */
 
 function shareResult() {
   const result = guesses.map(word =>
@@ -668,16 +607,62 @@ function shareResult() {
   const text =
     `Astro's Creators Wordle\n${result}\n${guesses.length}/6`;
 
-  if (navigator.clipboard && navigator.clipboard.writeText) {
+  if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(text)
       .then(() => showMessage("Result copied!"))
       .catch(() => showMessage("Could not copy result."));
   } else {
-    showMessage("Copy is not supported in this browser.");
+    showMessage("Copy is not supported.");
   }
 }
 
 /* START */
+
+function setup() {
+  $("dailyBtn").onclick = () => startGame("daily");
+  $("freeBtn").onclick = () => startGame("free");
+  $("helpBtn").onclick = () => openDialog("helpDialog");
+  $("statsBtn").onclick = showStats;
+
+  $("themeBtn").onclick = () =>
+    document.body.classList.toggle("light");
+
+  $("nextBtn").onclick = () => startGame("free");
+  $("shareBtn").onclick = shareResult;
+
+  $("confirmYes").onclick = () => {
+    closeDialog("confirmDialog");
+    guess = pendingGuess;
+    pendingGuess = "";
+    acceptGuess();
+  };
+
+  $("confirmNo").onclick = () => {
+    closeDialog("confirmDialog");
+    pendingGuess = "";
+  };
+
+  document.querySelectorAll("[data-close]").forEach(button => {
+    button.onclick = () =>
+      closeDialog(button.closest("dialog").id);
+  });
+
+  document.addEventListener("keydown", event => {
+    if (event.target.matches("input, textarea")) return;
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitGuess();
+    } else if (event.key === "Backspace") {
+      removeLetter();
+    } else if (/^[a-zA-Z.-]$/.test(event.key)) {
+      addLetter(event.key);
+    }
+  });
+
+  setupSecretCorner();
+  initFirebase();
+}
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", setup);
