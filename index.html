@@ -30,11 +30,10 @@
   <dialog id="helpDialog">
     <button class="close" data-close>×</button>
     <h2>How to play</h2>
-    <p>Guess the creator name in six tries.</p>
+    <p>Guess the creator in six tries.</p>
     <p>🟩 Green = correct letter and position.</p>
     <p>🟨 Yellow = correct letter, wrong position.</p>
     <p>⬛ Grey = letter isn't in the name.</p>
-    <p>Only the 21 creator names are accepted as guesses.</p>
   </dialog>
 
   <dialog id="statsDialog">
@@ -51,14 +50,14 @@
     <button id="nextBtn">Play again</button>
   </dialog>
 
-  <script src="app.js"></script>
-  
-<dialog id="confirmDialog">
-  <h2>Are you sure?</h2>
-  <p>Are you sure this creator isn't on the list?</p>
-  <button id="confirmYes">Yes, submit</button>
-  <button id="confirmNo">No, go back</button>
-</dialog>
+  <dialog id="confirmDialog">
+    <button class="close" data-close>×</button>
+    <h2>Are you sure?</h2>
+    <p>Are you sure this creator isn't on the list?</p>
+    <button id="confirmYes">Yes, submit</button>
+    <button id="confirmNo">No, go back</button>
+  </dialog>
 
+  <script src="app.js" defer></script>
 </body>
 </html>
