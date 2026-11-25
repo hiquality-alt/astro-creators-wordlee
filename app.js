@@ -221,6 +221,7 @@ function press(key) {
   }
 }
 
+
 function submitGuess() {
   if (guess.length !== answer.length) {
     message.textContent = `Enter ${answer.length} characters.`;
@@ -228,11 +229,65 @@ function submitGuess() {
     return;
   }
 
-if (!creators.includes(guess)) {
-  message.textContent = "This creator isn't on the list!";
-  shakeBoard();
-  return;
+  if (!creators.includes(guess)) {
+    $("confirmDialog").showModal();
+    return;
+  }
+
+  submitAcceptedGuess();
 }
+
+function submitAcceptedGuess() {
+  if (finished || busy) return;
+
+  busy = true;
+  message.textContent = "";
+
+  const submitted = guess;
+  const rowIndex = guesses.length;
+  const won = submitted === answer;
+
+  guesses.push(submitted);
+  guess = "";
+
+  const marks = score(submitted);
+  const row = board.children[rowIndex];
+
+  submitted.split("").forEach((letter, i) => {
+    const tile = row.children[i];
+
+    setTimeout(() => {
+      tile.classList.add("flip");
+
+      setTimeout(() => {
+        tile.classList.add(marks[i]);
+        updateKey(letter, marks[i]);
+      }, 250);
+    }, i * 100);
+  });
+
+  const animationTime = submitted.length * 100 + 550;
+
+  setTimeout(() => {
+    busy = false;
+    saveGame();
+
+    if (won) finish(true);
+    else if (guesses.length === 6) finish(false);
+
+    render();
+  }, animationTime);
+}
+
+$("confirmYes").onclick = () => {
+  $("confirmDialog").close();
+  submitAcceptedGuess();
+};
+
+$("confirmNo").onclick = () => {
+  $("confirmDialog").close();
+};
+
 
   busy = true;
   message.textContent = "";
